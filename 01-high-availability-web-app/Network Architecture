@@ -1,33 +1,115 @@
 # Network Architecture
 
 ## Requirements
-
 - Application must survive an Availability Zone failure.
 - Application servers must not be directly accessible from the internet.
 - Database must not be publicly accessible.
 - Public users must access the web application over HTTPS.
 
 ## VPC
-
 CIDR: 10.0.0.0/16
 
 ## Subnet Design
-
 | Subnet | Availability Zone | CIDR | Purpose |
 |---|---|---|---|
-| Public A | AZ-A | | Load balancer / NAT |
-| Public B | AZ-B | | Load balancer / NAT |
-| App A | AZ-A | | Application |
-| App B | AZ-B | | Application |
-| DB A | AZ-A | | Database |
-| DB B | AZ-B | | Database |
+| Public A | AZ-A | 10.0.1.0/24 | Load balancer / NAT |
+| Public B | AZ-B | 10.0.2.0/24 | Load balancer / NAT |
+| App A | AZ-A | 10.0.11.0/24 | Application |
+| App B | AZ-B | 10.0.12.0/24 | Application |
+| DB A | AZ-A | 10.0.21.0/24 | Database |
+| DB B | AZ-B | 10.0.22.0/24 | Database |
 
 ## Routing
+### Public Subnet
+Public A and Public B have a default route to the Internet Gateway.
+0.0.0.0/0 -> Internet Gateway
+
+### Private Application Subnets
+App A:
+0.0.0.0/0 -> NAT Gateway A
+
+App B:
+0.0.0.0/0 -> NAT Gateway B
+
+Allow Applications to initiate outbound connection to the internet, without allowing access from the internet.
+
+### Private Database Subnets
+DB A and DB B do not have a default route to the internet.
+
+Communication between the application and database tiers uses
+the VPC local route.
+
+## VPC Endpoints
+### S3 Gateway Endpoint
+The application tier uses an S3 Gateway VPC Endpoint for private
+connectivity to Amazon S3.
+
+S3 traffic does not need to traverse the NAT Gateway or public internet.
+
+### Interface Endpoint
+An Interface VPC Endpoint can be used for private connectivity to
+supported AWS services such as AWS Secrets Manager.
+
+This allows private application instances to communicate with the
+service without relying on NAT-based internet connectivity.
 
 ## Security Groups
+### ALB-SG
+Inbound: Port HTTPS 443 from the internet
+Purpose: Allows public HTTPS traffic to acess the App Load Balancer
+
+### App-SG
+Inbound: Application only allows traffic from ALB-SG
+Purpose: Allows application traffic only from the Application Load Balancer and prevents 
+direct inbound internet access to application instances.
+
+### DB-SG
+Inbound: PostgreSQL TCP 5432 from App-SG only allowed.
+Purpose: Only allows DB connections from the app.
 
 ## Availability Strategy
+The application is deployed across two Availability Zones to reduce dependency on a single AZ.
+
+App Load Balancer distributes incoming traffic across healthy application targets.
+
+Each Availability Zone has its own NAT Gateway, an app in one AZ does not depend on a NAT Gateway located in 
+another AZ for outbound connectivity.
+
+The database launched in multiple AZ supports the high-availability in case of failure.
 
 ## Architecture Decisions
+### AD-001 — Multi-AZ Network
+Decision: Launch application and db across multiple Availability Zones
+
+Reason: This Architecture allows high-availability to keep the app as healthy as posible in case of one AZ failure.
+
+Trade-off: Higher costs due to replication across AZs
+
+### AD-002 — Private Application Tier
+Decision: Deploy application instances in private subnets without public IP addresses
+
+Reason: Users access the application through the public Application Load Balancer.
+The application instances therefore do not require direct inbound internet access.
+
+Trade-off: Private instances require another mechanism, such as NAT Gateways,
+when outbound internet connectivity is required.
+
+### AD-003 — Database Network Isolation
+Decision: DB has no default internet rout
+
+Reason: DB doesn't require internect connection
+
+Trade-off: The database cannot initiate connections to public internet destinations. 
+Additional private connectivity or routing would need to be introduced if future database 
+requirements require access to external services.
 
 ## Alternatives Considered
+### Single NAT Gateway
+A single NAT Gateway could be used to reduce infrastructure cost.
+
+However, this would create a cross-AZ dependency. If the Availability Zone containing the NAT 
+Gateway becomes unavailable, application instances in the other AZ could lose their outbound 
+internet path.
+
+For a development environment where cost is more important than
+high availability, a single NAT Gateway could be considered.
