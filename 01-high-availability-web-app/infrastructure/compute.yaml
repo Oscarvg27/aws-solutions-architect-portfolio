@@ -1,1 +1,26 @@
+WebLaunchTemplate:
+  Type: AWS::EC2::LaunchTemplate
+  Properties:
+    LaunchTemplateData:
+      InstanceType: t3.micro
 
+      SecurityGroupIds:
+        - <ApplicationSecurityGroup>
+
+      IamInstanceProfile:
+        Arn: <InstanceProfile>
+
+      UserData:
+        <bootstrap application>
+
+WebAutoScalingGroup:
+  Type: AWS::AutoScaling::AutoScalingGroup
+  Properties:
+
+    MinSize: 2
+    DesiredCapacity: 2
+    MaxSize: 6
+
+    VPCZoneIdentifier:
+      - PrivateAppSubnetA
+      - PrivateAppSubnetB
